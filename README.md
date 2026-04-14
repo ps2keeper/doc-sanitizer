@@ -16,7 +16,7 @@ A web-based tool that replaces sensitive words in Word (.docx), text (.txt), and
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/doc-sanitizer.git
+git clone https://github.com/ps2keeper/doc-sanitizer.git
 cd doc-sanitizer
 
 # Install dependencies

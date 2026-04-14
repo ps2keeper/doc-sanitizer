@@ -43,7 +43,7 @@
 
 ```bash
 # 安装 Git（如果尚未安装）：访问 https://git-scm.com/download/win
-git clone https://github.com/YOUR_USERNAME/doc-sanitizer.git
+git clone https://github.com/ps2keeper/doc-sanitizer.git
 cd doc-sanitizer
 ```
 
@@ -267,4 +267,4 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 
 ## 技术支持
 
-如有问题，请在 GitHub 项目页面提交 [Issue](https://github.com/YOUR_USERNAME/doc-sanitizer/issues)。
+如有问题，请在 GitHub 项目页面提交 [Issue](https://github.com/ps2keeper/doc-sanitizer/issues)。
