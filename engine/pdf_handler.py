@@ -1,88 +1,87 @@
-"""PDF file processing handler using PyMuPDF and reportlab."""
+"""PDF file processing handler using PyMuPDF."""
 import re
 from io import BytesIO
 
 import fitz  # PyMuPDF
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-from reportlab.pdfgen import canvas as rl_canvas
 
 from engine.audit_engine import AuditEngine, AuditResult
 
-# Register CJK font for Chinese/Japanese/Korean text support
-_CJK_FONT = 'STSong-Light'
-pdfmetrics.registerFont(UnicodeCIDFont(_CJK_FONT))
-
 
 class PdfHandler:
-    """Handles .pdf file processing: extract text, replace, rebuild PDF."""
+    """Handles .pdf file processing: replace sensitive words in-place preserving original layout.
+
+    Strategy:
+    1. Find text positions using search_for (returns screen coordinates)
+    2. Insert replacement text at the CORRECT position (convert to PDF coords)
+    3. Add redaction annotation to remove the original text
+    4. Apply redactions
+    """
 
     def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
-        """Process a PDF file by extracting text, replacing sensitive words, and rebuilding.
-
-        Returns:
-            (BytesIO output, AuditResult, replacement_counts dict)
-        """
-        # Extract text page by page
+        """Process a PDF by replacing sensitive words while preserving original layout."""
         doc = fitz.open(file_path)
-        pages_text = []
-        page_sizes = []
 
-        for page in doc:
-            text = page.get_text()
-            pages_text.append(text)
-            # Get page dimensions
-            rect = page.rect
-            page_sizes.append((rect.width, rect.height))
-
-        doc.close()
-
-        # Count matches before replacing
+        # Count all matches first across all pages
         replacement_counts = {}
-        for word, replacement in replacements.items():
-            count = sum(len(re.findall(re.escape(word), t, re.IGNORECASE)) for t in pages_text)
-            if count > 0:
-                replacement_counts[word] = count
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            for word in replacements:
+                count = len(re.findall(re.escape(word), text, re.IGNORECASE))
+                if count > 0:
+                    replacement_counts[word] = replacement_counts.get(word, 0) + count
 
-        # Perform replacements
-        processed_pages = []
-        for text in pages_text:
-            processed = text
-            for word, replacement in replacements.items():
-                pattern = re.compile(re.escape(word), re.IGNORECASE)
-                processed = pattern.sub(replacement, processed)
-            processed_pages.append(processed)
+        # Perform replacements page by page
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            self._replace_on_page(page, replacements)
 
         # Full text for audit
-        full_text = '\n'.join(processed_pages)
+        full_text = '\n'.join(doc[page_num].get_text() for page_num in range(len(doc)))
 
         # Audit
         audit_engine = AuditEngine(replacements)
         audit_result = audit_engine.scan(full_text)
 
-        # Rebuild PDF with CJK font support
+        # Save
         output = BytesIO()
-        c = None
-        for i, (text, (width, height)) in enumerate(zip(processed_pages, page_sizes)):
-            if c is not None:
-                c.showPage()
-            c = rl_canvas.Canvas(output, pagesize=(width, height))
-
-            # Use CJK font for Chinese/multilingual text
-            c.setFont(_CJK_FONT, 12)
-            y = height - 72  # 1 inch margin from top
-            lines = text.split('\n')
-            for line in lines:
-                if line.strip():
-                    c.drawString(72, y, line.strip())
-                y -= 16  # slightly more line spacing for CJK
-                if y < 72:
-                    c.showPage()
-                    c = rl_canvas.Canvas(output, pagesize=(width, height))
-                    y = height - 72
-
-        if c is not None:
-            c.save()
+        doc.save(output)
         output.seek(0)
+        doc.close()
 
         return output, audit_result, replacement_counts
+
+    def _replace_on_page(self, page, replacements: dict[str, str]):
+        """Replace sensitive words on a single page."""
+        page_height = page.rect.height
+
+        for word, replacement in replacements.items():
+            instances = page.search_for(word)
+
+            if not instances:
+                continue
+
+            for rect in instances:
+                # Convert screen coords to PDF coords (flip y)
+                pdf_y0 = page_height - rect.y0
+                pdf_y1 = page_height - rect.y1
+                # In PDF coords, y0 > y1 (y0 is top, y1 is bottom from page bottom)
+                pdf_baseline = pdf_y1  # baseline is at the bottom of the text box
+
+                # Calculate font size from the rect height
+                font_size = max(6, int(rect.height * 0.8))
+
+                # Step 1: Insert replacement text at the correct position (PDF coords)
+                page.insert_text(
+                    fitz.Point(rect.x0, pdf_baseline + font_size * 0.15),
+                    replacement,
+                    fontsize=font_size,
+                    color=(0, 0, 0),
+                    fontname="china-s",
+                )
+
+                # Step 2: Add redaction annotation to remove original text
+                page.add_redact_annot(rect)
+
+        # Step 3: Apply all redactions to remove original text
+        page.apply_redactions()
