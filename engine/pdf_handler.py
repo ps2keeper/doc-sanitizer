@@ -3,10 +3,15 @@ import re
 from io import BytesIO
 
 import fitz  # PyMuPDF
-from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas as rl_canvas
 
 from engine.audit_engine import AuditEngine, AuditResult
+
+# Register CJK font for Chinese/Japanese/Korean text support
+_CJK_FONT = 'STSong-Light'
+pdfmetrics.registerFont(UnicodeCIDFont(_CJK_FONT))
 
 
 class PdfHandler:
@@ -14,7 +19,7 @@ class PdfHandler:
 
     def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
         """Process a PDF file by extracting text, replacing sensitive words, and rebuilding.
-        
+
         Returns:
             (BytesIO output, AuditResult, replacement_counts dict)
         """
@@ -55,7 +60,7 @@ class PdfHandler:
         audit_engine = AuditEngine(replacements)
         audit_result = audit_engine.scan(full_text)
 
-        # Rebuild PDF
+        # Rebuild PDF with CJK font support
         output = BytesIO()
         c = None
         for i, (text, (width, height)) in enumerate(zip(processed_pages, page_sizes)):
@@ -63,14 +68,14 @@ class PdfHandler:
                 c.showPage()
             c = rl_canvas.Canvas(output, pagesize=(width, height))
 
-            # Place text at standard position (top-left with margin)
-            c.setFont("Helvetica", 12)
+            # Use CJK font for Chinese/multilingual text
+            c.setFont(_CJK_FONT, 12)
             y = height - 72  # 1 inch margin from top
             lines = text.split('\n')
             for line in lines:
                 if line.strip():
                     c.drawString(72, y, line.strip())
-                y -= 14  # line spacing
+                y -= 16  # slightly more line spacing for CJK
                 if y < 72:
                     c.showPage()
                     c = rl_canvas.Canvas(output, pagesize=(width, height))
