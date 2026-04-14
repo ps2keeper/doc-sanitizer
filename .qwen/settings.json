@@ -5,7 +5,10 @@
       "Bash(pip install *)",
       "Bash(python *)",
       "Bash(python3 *)",
-      "Bash(rm *)"
+      "Bash(rm *)",
+      "Bash(sleep *)",
+      "Bash(curl *)",
+      "Bash(kill *)"
     ]
   },
   "$version": 3
