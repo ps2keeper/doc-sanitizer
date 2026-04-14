@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(touch *)",
+      "Bash(pip install *)"
+    ]
+  },
+  "$version": 3
+}
