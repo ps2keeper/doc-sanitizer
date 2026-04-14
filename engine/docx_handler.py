@@ -86,6 +86,9 @@ class DocxHandler:
         if not full_text:
             return
 
+        # Capture paragraph-level run format before rebuilding
+        fmt = self._capture_run_format(paragraph)
+
         # Find all sensitive word positions in the full text
         all_matches = []
         for word, replacement in replacements.items():
@@ -98,37 +101,67 @@ class DocxHandler:
         all_matches.sort(key=lambda x: x[0])
 
         # Rebuild the paragraph's XML children
-        self._rebuild_paragraph(paragraph, full_text, all_matches)
+        self._rebuild_paragraph(paragraph, full_text, all_matches, fmt)
 
-    def _rebuild_paragraph(self, paragraph, full_text: str, matches: list):
-        """Rebuild paragraph XML: keep non-matching text as normal runs, wrap matches in w:del/w:ins."""
+    def _capture_run_format(self, paragraph):
+        """Capture the w:rPr (run properties) from the first run in the paragraph."""
+        for child in paragraph._p:
+            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if tag == 'r':
+                rPr = child.find(qn('w:rPr'))
+                if rPr is not None:
+                    from copy import deepcopy
+                    return deepcopy(rPr)
+        return None
+
+    def _rebuild_paragraph(self, paragraph, full_text: str, matches: list, fmt):
+        """Rebuild paragraph XML preserving original run format."""
+        from copy import deepcopy
         # Remove all existing child elements
         for child in list(paragraph._p):
             paragraph._p.remove(child)
 
         pos = 0
         for start, end, original, replacement in matches:
-            # Text before match -> normal run
+            # Text before match -> normal run with inherited format
             if start > pos:
-                paragraph.add_run(full_text[pos:start])
+                self._add_run(paragraph, full_text[pos:start], fmt)
 
-            # Deleted original (tracked deletion)
-            self._make_del_run(paragraph, original)
+            # Deleted original (tracked deletion) with inherited format
+            self._make_del_run(paragraph, original, fmt)
 
-            # Replacement (tracked insertion)
-            self._make_ins_run(paragraph, replacement)
+            # Replacement (tracked insertion) with inherited format
+            self._make_ins_run(paragraph, replacement, fmt)
 
             pos = end
 
-        # Remaining text -> normal run
+        # Remaining text -> normal run with inherited format
         if pos < len(full_text):
-            paragraph.add_run(full_text[pos:])
+            self._add_run(paragraph, full_text[pos:], fmt)
 
-    def _make_del_run(self, paragraph, text: str):
-        """Create a run marked as a tracked deletion."""
+    def _add_run(self, paragraph, text: str, fmt):
+        """Add a normal run with copied format properties."""
+        from copy import deepcopy
         run = paragraph.add_run(text)
-        run.font.strike = True
+        if fmt is not None:
+            rPr = run._element.get_or_add_rPr()
+            for child in fmt:
+                rPr.append(deepcopy(child))
+
+    def _make_del_run(self, paragraph, text: str, fmt):
+        """Create a run marked as a tracked deletion, preserving original format."""
+        from copy import deepcopy
+        run = paragraph.add_run(text)
         rPr = run._element.get_or_add_rPr()
+
+        # Copy inherited format
+        if fmt is not None:
+            for child in fmt:
+                rPr.append(deepcopy(child))
+
+        # Add strikethrough
+        strike = rPr.makeelement(qn('w:strike'), {qn('w:val'): 'true'})
+        rPr.append(strike)
 
         # Add w:del revision marking in rPr
         del_el = rPr.makeelement(qn('w:del'), {
@@ -138,10 +171,16 @@ class DocxHandler:
         })
         rPr.append(del_el)
 
-    def _make_ins_run(self, paragraph, text: str):
-        """Create a run marked as a tracked insertion."""
+    def _make_ins_run(self, paragraph, text: str, fmt):
+        """Create a run marked as a tracked insertion, preserving original format."""
+        from copy import deepcopy
         run = paragraph.add_run(text)
         rPr = run._element.get_or_add_rPr()
+
+        # Copy inherited format
+        if fmt is not None:
+            for child in fmt:
+                rPr.append(deepcopy(child))
 
         # Add yellow highlight via rPr
         highlight = rPr.makeelement(qn('w:highlight'), {qn('w:val'): 'yellow'})

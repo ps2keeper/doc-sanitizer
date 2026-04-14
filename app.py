@@ -204,8 +204,8 @@ if __name__ == '__main__':
     print(f"\n{'='*50}")
     print(f"  文档敏感词替换工具已启动")
     print(f"{'='*50}")
-    print(f"  本机访问: http://127.0.0.1:5000")
-    print(f"  同网段访问: http://{local_ip}:5000")
+    print(f"  本机访问: http://127.0.0.1:5050")
+    print(f"  同网段访问: http://{local_ip}:5050")
     print(f"{'='*50}\n")
 
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5050)
