@@ -1,6 +1,8 @@
 import os
 import json
-from flask import Flask, render_template, request, jsonify
+import uuid
+import tempfile
+from flask import Flask, render_template, request, jsonify, send_file
 
 from models import (
     init_db, add_word, list_words, delete_word, update_word,
@@ -87,6 +89,81 @@ def api_import_words():
         return jsonify({'error': 'JSON object required'}), 400
     import_words(data)
     return jsonify({'status': 'ok', 'imported': len(data)})
+
+
+# Store processed files temporarily
+PROCESSED_DIR = os.path.join(os.path.dirname(__file__), 'processed')
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+
+@app.route('/api/process', methods=['POST'])
+def api_process():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Get sensitive words from DB
+    replacements = {w['word']: w['replacement'] for w in list_words()}
+    if not replacements:
+        return jsonify({'error': 'No sensitive words configured'}), 400
+
+    # Validate file type
+    ext = file.filename.rsplit('.', 1)[-1].lower()
+    if ext not in ('docx', 'txt', 'pdf'):
+        return jsonify({'error': f'Unsupported file type: .{ext}'}), 400
+
+    # Save uploaded file
+    upload_id = str(uuid.uuid4())
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{upload_id}.{ext}")
+    file.save(upload_path)
+
+    try:
+        from engine import get_handler
+        handler = get_handler(upload_path)
+        result, audit_result = handler.process(upload_path, replacements)
+
+        # Save processed result
+        output_filename = f"processed_{upload_id}.{ext}"
+        output_path = os.path.join(PROCESSED_DIR, output_filename)
+        with open(output_path, 'wb') as f:
+            f.write(result.getvalue())
+
+        # Save audit report
+        audit_path = os.path.join(PROCESSED_DIR, f"audit_{upload_id}.json")
+        with open(audit_path, 'w') as f:
+            json.dump({
+                'is_clean': audit_result.is_clean,
+                'total_matches': audit_result.total_matches,
+                'missed_words': audit_result.missed_words,
+            }, f, default=str)
+
+        return jsonify({
+            'download_url': f'/api/download/{output_filename}',
+            'audit_url': f'/api/download/audit_{upload_id}.json',
+            'audit': {
+                'is_clean': audit_result.is_clean,
+                'total_matches': audit_result.total_matches,
+                'missed_words': audit_result.missed_words[:10],
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        # Clean up uploaded file
+        if os.path.exists(upload_path):
+            os.remove(upload_path)
+
+
+@app.route('/api/download/<filename>')
+def api_download(filename):
+    filepath = os.path.join(PROCESSED_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(filepath, as_attachment=True, download_name=filename)
 
 
 if __name__ == '__main__':

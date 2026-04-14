@@ -4,7 +4,8 @@
       "Bash(touch *)",
       "Bash(pip install *)",
       "Bash(python *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(rm *)"
     ]
   },
   "$version": 3
