@@ -14,7 +14,7 @@ def test_basic_replacement_track_changes(tmp_path):
     doc.save(doc_path)
 
     handler = DocxHandler()
-    result, audit = handler.process(doc_path, {'secret': 'REDACTED'})
+    result, audit, _counts = handler.process(doc_path, {'secret': 'REDACTED'})
     processed_content = result.getvalue()
 
     # Result should be a valid .docx
@@ -34,7 +34,7 @@ def test_replacement_in_table(tmp_path):
     doc.save(doc_path)
 
     handler = DocxHandler()
-    result, audit = handler.process(doc_path, {'confidential': '[CONF]', 'data': '[DATA]'})
+    result, audit, _counts = handler.process(doc_path, {'confidential': '[CONF]', 'data': '[DATA]'})
     assert audit.is_clean is True
 
 
@@ -46,5 +46,5 @@ def test_no_sensitive_words(tmp_path):
     doc.save(doc_path)
 
     handler = DocxHandler()
-    result, audit = handler.process(doc_path, {})
+    result, audit, _counts = handler.process(doc_path, {})
     assert audit.is_clean is True

@@ -16,6 +16,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             word TEXT NOT NULL UNIQUE,
             replacement TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -23,12 +24,12 @@ def init_db():
     conn.close()
 
 
-def add_word(word: str, replacement: str) -> int:
+def add_word(word: str, replacement: str, enabled: bool = True) -> int:
     conn = get_db()
     try:
         cursor = conn.execute(
-            'INSERT INTO sensitive_words (word, replacement) VALUES (?, ?)',
-            (word, replacement)
+            'INSERT INTO sensitive_words (word, replacement, enabled) VALUES (?, ?, ?)',
+            (word, replacement, 1 if enabled else 0)
         )
         conn.commit()
         return cursor.lastrowid
@@ -41,6 +42,14 @@ def add_word(word: str, replacement: str) -> int:
 def list_words() -> list[dict]:
     conn = get_db()
     rows = conn.execute('SELECT * FROM sensitive_words ORDER BY created_at').fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def list_enabled_words() -> list[dict]:
+    """Return only enabled words for document processing."""
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM sensitive_words WHERE enabled = 1 ORDER BY created_at').fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
@@ -61,6 +70,19 @@ def update_word(word_id: int, word: str, replacement: str) -> bool:
     cursor = conn.execute(
         'UPDATE sensitive_words SET word = ?, replacement = ? WHERE id = ?',
         (word, replacement, word_id)
+    )
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
+def update_enabled(word_id: int, enabled: bool) -> bool:
+    """Toggle enabled status. Returns True if updated, False if not found."""
+    conn = get_db()
+    cursor = conn.execute(
+        'UPDATE sensitive_words SET enabled = ? WHERE id = ?',
+        (1 if enabled else 0, word_id)
     )
     conn.commit()
     updated = cursor.rowcount > 0

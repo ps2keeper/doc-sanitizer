@@ -19,10 +19,28 @@ class DocxHandler:
         self._revision_id += 1
         return str(self._revision_id)
 
-    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult]:
-        """Process a Word document by replacing sensitive words with tracked deletions/insertions."""
+    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult, dict[str, int]]:
+        """Process a Word document by replacing sensitive words with tracked deletions/insertions.
+        
+        Returns:
+            (BytesIO output, AuditResult, replacement_counts dict)
+        """
         self._revision_id = 0
         doc = Document(file_path)
+
+        # Count matches before replacing
+        replacement_counts = {}
+        for word, replacement in replacements.items():
+            count = 0
+            for p in doc.paragraphs:
+                count += len(re.findall(re.escape(word), p.text, re.IGNORECASE))
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for p in cell.paragraphs:
+                            count += len(re.findall(re.escape(word), p.text, re.IGNORECASE))
+            if count > 0:
+                replacement_counts[word] = count
 
         # Enable track changes
         self._enable_track_changes(doc)
@@ -40,7 +58,7 @@ class DocxHandler:
         audit_engine = AuditEngine(replacements)
         audit_result = audit_engine.scan(full_text)
 
-        return output, audit_result
+        return output, audit_result, replacement_counts
 
     def _enable_track_changes(self, doc):
         """Enable track changes in the document settings."""

@@ -16,7 +16,7 @@ def test_basic_replacement(tmp_path):
     doc.close()
 
     handler = PdfHandler()
-    result, audit = handler.process(pdf_path, {'secret': 'REDACTED'})
+    result, audit, _counts = handler.process(pdf_path, {'secret': 'REDACTED'})
     assert result is not None
     assert audit.is_clean is True
 
@@ -31,5 +31,5 @@ def test_no_sensitive_words(tmp_path):
     doc.close()
 
     handler = PdfHandler()
-    result, audit = handler.process(pdf_path, {})
+    result, audit, _counts = handler.process(pdf_path, {})
     assert audit.is_clean is True

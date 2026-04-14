@@ -1,7 +1,7 @@
 const API = '/api/sensitive-words';
 let selectedFile = null;
 
-// --- Sensitive Words Management ---
+// --- 敏感词管理 ---
 
 async function loadWords() {
     const resp = await fetch(API);
@@ -9,32 +9,43 @@ async function loadWords() {
     const tbody = document.getElementById('wordsTable');
     tbody.innerHTML = '';
     if (words.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">No sensitive words configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">暂无敏感词配置</td></tr>';
     } else {
         words.forEach(w => {
             const tr = document.createElement('tr');
-            
+
+            // 启用/禁用复选框
+            const tdCheck = document.createElement('td');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'form-check-input';
+            checkbox.checked = w.enabled === 1;
+            checkbox.title = w.enabled ? '已启用' : '已禁用';
+            checkbox.addEventListener('change', () => toggleWord(w.id, checkbox.checked));
+            tdCheck.appendChild(checkbox);
+
             const tdWord = document.createElement('td');
             const inputWord = document.createElement('input');
             inputWord.className = 'form-control form-control-sm';
             inputWord.value = w.word;
             inputWord.addEventListener('change', () => updateWord(w.id, inputWord, inputReplacement));
             tdWord.appendChild(inputWord);
-            
+
             const tdRepl = document.createElement('td');
             const inputReplacement = document.createElement('input');
             inputReplacement.className = 'form-control form-control-sm';
             inputReplacement.value = w.replacement;
             inputReplacement.addEventListener('change', () => updateWord(w.id, inputWord, inputReplacement));
             tdRepl.appendChild(inputReplacement);
-            
+
             const tdDel = document.createElement('td');
             const btnDel = document.createElement('button');
             btnDel.className = 'btn btn-sm btn-danger';
             btnDel.textContent = '×';
             btnDel.addEventListener('click', () => deleteWord(w.id));
             tdDel.appendChild(btnDel);
-            
+
+            tr.appendChild(tdCheck);
             tr.appendChild(tdWord);
             tr.appendChild(tdRepl);
             tr.appendChild(tdDel);
@@ -42,6 +53,14 @@ async function loadWords() {
         });
     }
     updateProcessButton();
+}
+
+async function toggleWord(id, enabled) {
+    await fetch(`${API}/${id}/toggle`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled})
+    });
 }
 
 function escapeHtml(text) {
@@ -53,7 +72,7 @@ function escapeHtml(text) {
 async function addWord() {
     const word = document.getElementById('newWord').value.trim();
     const replacement = document.getElementById('newReplacement').value.trim();
-    if (!word || !replacement) return alert('Both fields required');
+    if (!word || !replacement) return alert('请填写敏感词和替换词');
 
     await fetch(API, {
         method: 'POST',
@@ -78,14 +97,6 @@ async function deleteWord(id) {
     await loadWords();
 }
 
-async function clearWords() {
-    if (!confirm('Clear all sensitive words?')) return;
-    const resp = await fetch(`${API}/clear`, {method: 'POST'});
-    const data = await resp.json();
-    alert(`Cleared ${data.cleared} word(s)`);
-    await loadWords();
-}
-
 async function exportWords() {
     const resp = await fetch(`${API}/export`);
     const data = await resp.json();
@@ -93,7 +104,7 @@ async function exportWords() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'sensitive_words.json';
+    a.download = '敏感词配置.json';
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -107,16 +118,22 @@ async function handleImport(event) {
     if (!file) return;
     const text = await file.text();
     const data = JSON.parse(text);
-    await fetch(`${API}/import`, {
+    const resp = await fetch(`${API}/import`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     });
+    const result = await resp.json();
+    if (result.error) {
+        alert('导入失败：' + result.error);
+    } else {
+        alert(`成功导入 ${result.imported} 条`);
+    }
     await loadWords();
     event.target.value = '';
 }
 
-// --- File Upload & Processing ---
+// --- 文件上传与处理 ---
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -143,9 +160,17 @@ fileInput.addEventListener('change', () => {
     }
 });
 
+function countEnabledWords() {
+    const tbody = document.getElementById('wordsTable');
+    const checkboxes = tbody.querySelectorAll('input[type="checkbox"]');
+    let count = 0;
+    checkboxes.forEach(cb => { if (cb.checked) count++; });
+    return count;
+}
+
 function updateProcessButton() {
-    const words = document.getElementById('wordsTable').children.length;
-    document.getElementById('processBtn').disabled = !(selectedFile && words > 0);
+    const enabledCount = countEnabledWords();
+    document.getElementById('processBtn').disabled = !(selectedFile && enabledCount > 0);
 }
 
 async function processDocument() {
@@ -172,32 +197,50 @@ async function processDocument() {
             return;
         }
 
-        // Show audit
+        // 显示替换统计
+        const totalCount = data.total_replacements || 0;
+        const counts = data.replacement_counts || {};
+        let statsHtml = '';
+        if (totalCount > 0) {
+            const items = Object.entries(counts).map(([word, count]) =>
+                `<li>「${escapeHtml(word)}」已替换 <strong>${count}</strong> 次</li>`
+            ).join('');
+            statsHtml = `
+                <div class="alert alert-info">
+                    📊 共替换 <strong>${totalCount}</strong> 处：
+                    <ul class="mb-0">${items}</ul>
+                </div>`;
+        } else {
+            statsHtml = `<div class="alert alert-secondary">ℹ️ 未发现需要替换的敏感词</div>`;
+        }
+
+        // 显示审计结果
         const audit = data.audit;
         if (audit.is_clean) {
-            auditResult.innerHTML = `<div class="alert alert-success">✅ Audit passed: no sensitive words remaining.</div>`;
+            statsHtml += `<div class="alert alert-success">✅ 审计通过：未检测到残留敏感词</div>`;
         } else {
-            auditResult.innerHTML = `
+            statsHtml += `
                 <div class="alert alert-warning">
-                    ⚠️ Audit found ${audit.total_matches} remaining match(es):
-                    <ul>${audit.missed_words.map(m => `<li><strong>${escapeHtml(m.word)}</strong> — ${escapeHtml(m.context)}</li>`).join('')}</ul>
+                    ⚠️ 审计发现 ${audit.total_matches} 处残留匹配：
+                    <ul class="mb-0">${audit.missed_words.map(m => `<li><strong>${escapeHtml(m.word)}</strong> — ${escapeHtml(m.context)}</li>`).join('')}</ul>
                 </div>`;
         }
+        auditResult.innerHTML = statsHtml;
         auditResult.classList.remove('d-none');
 
-        // Show download links
+        // 显示下载链接
         downloadLinks.innerHTML = `
-            <a href="${data.download_url}" class="btn btn-primary me-2">Download Processed Document</a>
-            <a href="${data.audit_url}" class="btn btn-outline-secondary">Download Audit Report</a>`;
+            <a href="${data.download_url}" class="btn btn-primary me-2">下载处理后文档</a>
+            <a href="${data.audit_url}" class="btn btn-outline-secondary">下载审计报告</a>`;
         downloadLinks.classList.remove('d-none');
 
     } catch (err) {
-        auditResult.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(err.message)}</div>`;
+        auditResult.innerHTML = `<div class="alert alert-danger">处理出错：${escapeHtml(err.message)}</div>`;
         auditResult.classList.remove('d-none');
     } finally {
         progress.classList.add('d-none');
     }
 }
 
-// Init
+// 初始化
 loadWords();

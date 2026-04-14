@@ -12,8 +12,12 @@ from engine.audit_engine import AuditEngine, AuditResult
 class PdfHandler:
     """Handles .pdf file processing: extract text, replace, rebuild PDF."""
 
-    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult]:
-        """Process a PDF file by extracting text, replacing sensitive words, and rebuilding."""
+    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult, dict[str, int]]:
+        """Process a PDF file by extracting text, replacing sensitive words, and rebuilding.
+        
+        Returns:
+            (BytesIO output, AuditResult, replacement_counts dict)
+        """
         # Extract text page by page
         doc = fitz.open(file_path)
         pages_text = []
@@ -27,6 +31,13 @@ class PdfHandler:
             page_sizes.append((rect.width, rect.height))
 
         doc.close()
+
+        # Count matches before replacing
+        replacement_counts = {}
+        for word, replacement in replacements.items():
+            count = sum(len(re.findall(re.escape(word), t, re.IGNORECASE)) for t in pages_text)
+            if count > 0:
+                replacement_counts[word] = count
 
         # Perform replacements
         processed_pages = []
@@ -69,4 +80,4 @@ class PdfHandler:
             c.save()
         output.seek(0)
 
-        return output, audit_result
+        return output, audit_result, replacement_counts
