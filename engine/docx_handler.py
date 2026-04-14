@@ -4,6 +4,7 @@ from io import BytesIO
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import RGBColor
 
 from engine.audit_engine import AuditEngine, AuditResult
 
@@ -11,8 +12,16 @@ from engine.audit_engine import AuditEngine, AuditResult
 class DocxHandler:
     """Handles .docx file processing: replaces sensitive words with track-changes."""
 
+    def __init__(self):
+        self._revision_id = 0
+
+    def _next_id(self) -> str:
+        self._revision_id += 1
+        return str(self._revision_id)
+
     def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult]:
         """Process a Word document by replacing sensitive words with tracked deletions/insertions."""
+        self._revision_id = 0
         doc = Document(file_path)
 
         # Enable track changes
@@ -80,17 +89,16 @@ class DocxHandler:
             paragraph._p.remove(child)
 
         pos = 0
-        match_idx = 0
         for start, end, original, replacement in matches:
             # Text before match -> normal run
             if start > pos:
-                run = paragraph.add_run(full_text[pos:start])
+                paragraph.add_run(full_text[pos:start])
 
-            # Deleted original -> wrapped in w:del
-            del_el = self._make_del_run(paragraph, original)
+            # Deleted original (tracked deletion)
+            self._make_del_run(paragraph, original)
 
-            # Replacement -> wrapped in w:ins
-            ins_el = self._make_ins_run(paragraph, replacement)
+            # Replacement (tracked insertion)
+            self._make_ins_run(paragraph, replacement)
 
             pos = end
 
@@ -99,54 +107,32 @@ class DocxHandler:
             paragraph.add_run(full_text[pos:])
 
     def _make_del_run(self, paragraph, text: str):
-        """Create a run wrapped in a w:del element and append to paragraph."""
-        # Create the run element
-        r = paragraph._p.makeelement(qn('w:r'), {})
-        rPr = r.makeelement(qn('w:rPr'), {})
-        strike = rPr.makeelement(qn('w:strike'), {qn('w:val'): 'true'})
-        rPr.append(strike)
-        r.append(rPr)
+        """Create a run marked as a tracked deletion."""
+        run = paragraph.add_run(text)
+        run.font.strike = True
+        rPr = run._element.get_or_add_rPr()
 
-        # Text node
-        t = r.makeelement(qn('w:t'), {})
-        t.text = text
-        t.set(qn('xml:space'), 'preserve')
-        r.append(t)
-
-        # Wrap in w:del
-        del_el = paragraph._p.makeelement(qn('w:del'), {
-            qn('w:id'): str(abs(hash(text))),
+        # Add w:del revision marking in rPr
+        del_el = rPr.makeelement(qn('w:del'), {
+            qn('w:id'): self._next_id(),
             qn('w:author'): 'DocSanitizer',
             qn('w:date'): '2026-04-14T00:00:00Z'
         })
-        del_el.append(r)
-        paragraph._p.append(del_el)
-        return del_el
+        rPr.append(del_el)
 
     def _make_ins_run(self, paragraph, text: str):
-        """Create a run wrapped in a w:ins element and append to paragraph."""
-        # Create the run element
-        r = paragraph._p.makeelement(qn('w:r'), {})
-        rPr = r.makeelement(qn('w:rPr'), {})
-        highlight = rPr.makeelement(qn('w:highlight'), {qn('w:val'): 'yellow'})
-        rPr.append(highlight)
-        r.append(rPr)
+        """Create a run marked as a tracked insertion."""
+        run = paragraph.add_run(text)
+        run.font.highlight_color = 6  # Yellow highlight
+        rPr = run._element.get_or_add_rPr()
 
-        # Text node
-        t = r.makeelement(qn('w:t'), {})
-        t.text = text
-        t.set(qn('xml:space'), 'preserve')
-        r.append(t)
-
-        # Wrap in w:ins
-        ins_el = paragraph._p.makeelement(qn('w:ins'), {
-            qn('w:id'): str(abs(hash(text)) + 1),
+        # Add w:ins revision marking in rPr
+        ins_el = rPr.makeelement(qn('w:ins'), {
+            qn('w:id'): self._next_id(),
             qn('w:author'): 'DocSanitizer',
             qn('w:date'): '2026-04-14T00:00:00Z'
         })
-        ins_el.append(r)
-        paragraph._p.append(ins_el)
-        return ins_el
+        rPr.append(ins_el)
 
     def _extract_text(self, doc) -> str:
         """Extract all text from a document, skipping deleted (w:del) text."""
@@ -161,23 +147,18 @@ class DocxHandler:
         return '\n'.join(parts)
 
     def _extract_paragraph_text(self, paragraph) -> str:
-        """Extract text from a paragraph, skipping text inside w:del elements."""
+        """Extract text from a paragraph, skipping text inside deleted runs."""
         texts = []
         for child in paragraph._p:
             tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-            if tag == 'del':
-                # Skip deleted text
+            if tag != 'r':
                 continue
-            elif tag == 'ins':
-                # Include inserted text (from child runs)
-                for r in child:
-                    if r.tag.split('}')[-1] == 'r':
-                        for t in r:
-                            if t.tag.split('}')[-1] == 't' and t.text:
-                                texts.append(t.text)
-            elif tag == 'r':
-                # Normal run
-                for t in child:
-                    if t.tag.split('}')[-1] == 't' and t.text:
-                        texts.append(t.text)
+            # Check if this run has a w:del in its rPr
+            rPr = child.find(qn('w:rPr'))
+            if rPr is not None and rPr.find(qn('w:del')) is not None:
+                continue  # Skip deleted runs
+            # Extract text from this run
+            for t in child:
+                if t.tag.split('}')[-1] == 't' and t.text:
+                    texts.append(t.text)
         return ''.join(texts)
