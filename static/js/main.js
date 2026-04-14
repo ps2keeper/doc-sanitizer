@@ -1,5 +1,6 @@
 const API = '/api/sensitive-words';
 let selectedFile = null;
+let autoSaveTimer = null;
 
 // --- 敏感词管理 ---
 
@@ -97,6 +98,16 @@ async function deleteWord(id) {
     await loadWords();
 }
 
+async function saveWords() {
+    // Export current words as JSON and re-import (sync mechanism via export)
+    const resp = await fetch(`${API}/export`);
+    const data = await resp.json();
+    const statusEl = document.getElementById('saveStatus');
+    statusEl.textContent = '💾 已保存 ' + formatTime(new Date());
+    statusEl.className = 'text-success me-2';
+    statusEl.style.fontSize = '0.8rem';
+}
+
 async function exportWords() {
     const resp = await fetch(`${API}/export`);
     const data = await resp.json();
@@ -131,6 +142,21 @@ async function handleImport(event) {
     }
     await loadWords();
     event.target.value = '';
+}
+
+function formatTime(date) {
+    const h = date.getHours().toString().padStart(2, '0');
+    const m = date.getMinutes().toString().padStart(2, '0');
+    const s = date.getSeconds().toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+}
+
+function startAutoSave() {
+    // Auto-save every 3 minutes (180000 ms)
+    if (autoSaveTimer) clearInterval(autoSaveTimer);
+    autoSaveTimer = setInterval(async () => {
+        await saveWords();
+    }, 3 * 60 * 1000);
 }
 
 // --- 文件上传与处理 ---
@@ -244,3 +270,4 @@ async function processDocument() {
 
 // 初始化
 loadWords();
+startAutoSave();
