@@ -46,6 +46,7 @@
                         <div id="dropZone" class="border rounded p-4 text-center mb-3">
                             <p class="mb-0 text-muted">拖拽 .docx、.txt 或 .pdf 文件到这里，或</p>
                             <input type="file" id="fileInput" accept=".docx,.txt,.pdf" class="form-control mt-2">
+                            <input type="file" id="batchFileInput" accept=".docx,.txt,.pdf" multiple class="form-control mt-2 d-none">
                         </div>
                         <div class="form-check mb-3">
                             <input class="form-check-input" type="checkbox" id="trackChangesMode" checked>
@@ -53,13 +54,37 @@
                                 Word 文档使用修订模式（取消勾选则直接替换文字）
                             </label>
                         </div>
-                        <button id="processBtn" class="btn btn-success w-100" onclick="processDocument()" disabled>
-                            处理文档
+                        <div class="d-flex gap-2 mb-2">
+                            <button id="processBtn" class="btn btn-success flex-grow-1" onclick="processDocument()" disabled>
+                                处理文档
+                            </button>
+                            <button id="batchProcessBtn" class="btn btn-primary flex-grow-1" onclick="toggleBatchMode()">
+                                批量处理
+                            </button>
+                        </div>
+                        <div id="fileList" class="d-none mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <small class="text-muted" id="fileCount"></small>
+                                <button class="btn btn-sm btn-outline-danger" onclick="clearBatchFiles()">清空</button>
+                            </div>
+                            <div id="batchFilesList" class="border rounded p-2" style="max-height:150px;overflow-y:auto"></div>
+                        </div>
+                        <button id="batchSubmitBtn" class="btn btn-warning w-100 d-none mb-3" onclick="processBatch()" disabled>
+                            开始批量处理
                         </button>
                         <div id="progress" class="mt-3 d-none">
                             <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%">处理中...</div></div>
                         </div>
+                        <div id="batchProgress" class="mt-3 d-none">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small id="batchProgressText" class="text-muted"></small>
+                            </div>
+                            <div class="progress">
+                                <div id="batchProgressBar" class="progress-bar bg-primary" style="width:0%"></div>
+                            </div>
+                        </div>
                         <div id="auditResult" class="mt-3 d-none"></div>
+                        <div id="batchResult" class="mt-3 d-none"></div>
                         <div id="downloadLinks" class="mt-3 d-none"></div>
                     </div>
                 </div>

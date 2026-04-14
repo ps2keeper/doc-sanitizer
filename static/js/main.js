@@ -1,6 +1,8 @@
 const API = '/api/sensitive-words';
 let selectedFile = null;
 let autoSaveTimer = null;
+let isBatchMode = false;
+let batchFiles = [];
 
 // --- 敏感词管理 ---
 
@@ -15,7 +17,6 @@ async function loadWords() {
         words.forEach(w => {
             const tr = document.createElement('tr');
 
-            // 启用/禁用复选框
             const tdCheck = document.createElement('td');
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
@@ -99,7 +100,6 @@ async function deleteWord(id) {
 }
 
 async function saveWords() {
-    // Export current words as JSON and re-import (sync mechanism via export)
     const resp = await fetch(`${API}/export`);
     const data = await resp.json();
     const statusEl = document.getElementById('saveStatus');
@@ -152,39 +152,89 @@ function formatTime(date) {
 }
 
 function startAutoSave() {
-    // Auto-save every 3 minutes (180000 ms)
     if (autoSaveTimer) clearInterval(autoSaveTimer);
     autoSaveTimer = setInterval(async () => {
         await saveWords();
     }, 3 * 60 * 1000);
 }
 
-// --- 文件上传与处理 ---
+// --- 批量模式切换 ---
 
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
+function toggleBatchMode() {
+    isBatchMode = !isBatchMode;
+    const batchBtn = document.getElementById('batchProcessBtn');
+    const batchFileInput = document.getElementById('batchFileInput');
+    const fileList = document.getElementById('fileList');
+    const batchSubmitBtn = document.getElementById('batchSubmitBtn');
+    const fileInput = document.getElementById('fileInput');
 
-dropZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-});
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) {
-        selectedFile = e.dataTransfer.files[0];
-        fileInput.files = e.dataTransfer.files;
-        updateProcessButton();
+    if (isBatchMode) {
+        batchBtn.textContent = '单文件处理';
+        batchFileInput.classList.remove('d-none');
+        fileInput.classList.add('d-none');
+        fileList.classList.remove('d-none');
+        batchSubmitBtn.classList.remove('d-none');
+        document.getElementById('processBtn').classList.add('d-none');
+    } else {
+        batchBtn.textContent = '批量处理';
+        batchFileInput.classList.add('d-none');
+        fileInput.classList.remove('d-none');
+        fileList.classList.add('d-none');
+        batchSubmitBtn.classList.add('d-none');
+        document.getElementById('processBtn').classList.remove('d-none');
+        batchFiles = [];
+        updateBatchFileList();
     }
+}
+
+// --- 文件管理 ---
+
+document.getElementById('batchFileInput').addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(f => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        if (['docx', 'txt', 'pdf'].includes(ext)) {
+            batchFiles.push(f);
+        }
+    });
+    updateBatchFileList();
+    document.getElementById('batchSubmitBtn').disabled = batchFiles.length === 0;
+    e.target.value = '';
 });
 
-fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) {
-        selectedFile = fileInput.files[0];
-        updateProcessButton();
-    }
-});
+function updateBatchFileList() {
+    const container = document.getElementById('batchFilesList');
+    const countEl = document.getElementById('fileCount');
+    countEl.textContent = `已选择 ${batchFiles.length} 个文件`;
+    container.innerHTML = '';
+    batchFiles.forEach((f, idx) => {
+        const div = document.createElement('div');
+        div.className = 'd-flex justify-content-between align-items-center py-1';
+        div.innerHTML = `
+            <small class="text-truncate me-2">${escapeHtml(f.name)} <span class="text-muted">(${formatFileSize(f.size)})</span></small>
+            <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeBatchFile(${idx})">×</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function removeBatchFile(idx) {
+    batchFiles.splice(idx, 1);
+    updateBatchFileList();
+    document.getElementById('batchSubmitBtn').disabled = batchFiles.length === 0;
+}
+
+function clearBatchFiles() {
+    batchFiles = [];
+    updateBatchFileList();
+    document.getElementById('batchSubmitBtn').disabled = true;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
 
 function countEnabledWords() {
     const tbody = document.getElementById('wordsTable');
@@ -198,6 +248,43 @@ function updateProcessButton() {
     const enabledCount = countEnabledWords();
     document.getElementById('processBtn').disabled = !(selectedFile && enabledCount > 0);
 }
+
+// --- 单文件处理 ---
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+        if (isBatchMode) {
+            // In batch mode, add all dropped files
+            Array.from(e.dataTransfer.files).forEach(f => {
+                const ext = f.name.split('.').pop().toLowerCase();
+                if (['docx', 'txt', 'pdf'].includes(ext)) batchFiles.push(f);
+            });
+            updateBatchFileList();
+            document.getElementById('batchSubmitBtn').disabled = batchFiles.length === 0;
+        } else {
+            selectedFile = e.dataTransfer.files[0];
+            fileInput.files = e.dataTransfer.files;
+            updateProcessButton();
+        }
+    }
+});
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+        selectedFile = fileInput.files[0];
+        updateProcessButton();
+    }
+});
 
 async function processDocument() {
     if (!selectedFile) return;
@@ -224,7 +311,6 @@ async function processDocument() {
             return;
         }
 
-        // 显示替换统计
         const totalCount = data.total_replacements || 0;
         const counts = data.replacement_counts || {};
         let statsHtml = '';
@@ -241,7 +327,6 @@ async function processDocument() {
             statsHtml = `<div class="alert alert-secondary">ℹ️ 未发现需要替换的敏感词</div>`;
         }
 
-        // 显示审计结果
         const audit = data.audit;
         if (audit.is_clean) {
             statsHtml += `<div class="alert alert-success">✅ 审计通过：未检测到残留敏感词</div>`;
@@ -255,7 +340,6 @@ async function processDocument() {
         auditResult.innerHTML = statsHtml;
         auditResult.classList.remove('d-none');
 
-        // 显示下载链接
         downloadLinks.innerHTML = `
             <a href="${data.download_url}" class="btn btn-primary me-2">下载处理后文档</a>
             <a href="${data.audit_url}" class="btn btn-outline-secondary">下载审计报告</a>`;
@@ -267,6 +351,89 @@ async function processDocument() {
     } finally {
         progress.classList.add('d-none');
     }
+}
+
+// --- 批量处理 ---
+
+async function processBatch() {
+    if (batchFiles.length === 0) return;
+
+    const enabledCount = countEnabledWords();
+    if (enabledCount === 0) return alert('请先添加并启用敏感词');
+
+    const batchProgress = document.getElementById('batchProgress');
+    const batchProgressBar = document.getElementById('batchProgressBar');
+    const batchProgressText = document.getElementById('batchProgressText');
+    const batchResult = document.getElementById('batchResult');
+    const downloadLinks = document.getElementById('downloadLinks');
+
+    batchProgress.classList.remove('d-none');
+    batchResult.classList.add('d-none');
+    downloadLinks.classList.add('d-none');
+
+    const trackChanges = document.getElementById('trackChangesMode').checked;
+    let successCount = 0;
+    let failCount = 0;
+    let totalReplacements = 0;
+    const results = [];
+
+    for (let i = 0; i < batchFiles.length; i++) {
+        const file = batchFiles[i];
+        batchProgressText.textContent = `正在处理 ${i + 1}/${batchFiles.length}：${file.name}`;
+        batchProgressBar.style.width = `${((i + 1) / batchFiles.length) * 100}%`;
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('track_changes', trackChanges ? 'true' : 'false');
+
+            const resp = await fetch('/api/process', {method: 'POST', body: formData});
+            const data = await resp.json();
+
+            if (data.error) {
+                failCount++;
+                results.push({name: file.name, status: 'error', error: data.error});
+            } else {
+                successCount++;
+                totalReplacements += data.total_replacements || 0;
+                results.push({name: file.name, status: 'success', replacements: data.total_replacements, download_url: data.download_url, audit_url: data.audit_url});
+            }
+        } catch (err) {
+            failCount++;
+            results.push({name: file.name, status: 'error', error: err.message});
+        }
+    }
+
+    // Show results
+    let resultHtml = `
+        <div class="alert ${failCount === 0 ? 'alert-success' : 'alert-warning'}">
+            📊 批量处理完成：成功 <strong>${successCount}</strong> 个，失败 <strong>${failCount}</strong> 个，共替换 <strong>${totalReplacements}</strong> 处
+        </div>`;
+
+    // Show individual results
+    resultHtml += '<div class="list-group">';
+    results.forEach(r => {
+        if (r.status === 'success') {
+            resultHtml += `
+                <div class="list-group-item list-group-item-success d-flex justify-content-between align-items-center">
+                    <span>✅ ${escapeHtml(r.name)}（替换 ${r.replacements} 处）</span>
+                    <div>
+                        <a href="${r.download_url}" class="btn btn-sm btn-primary me-1">下载</a>
+                        <a href="${r.audit_url}" class="btn btn-sm btn-outline-secondary">审计</a>
+                    </div>
+                </div>`;
+        } else {
+            resultHtml += `
+                <div class="list-group-item list-group-item-danger">
+                    ❌ ${escapeHtml(r.name)}：${escapeHtml(r.error)}
+                </div>`;
+        }
+    });
+    resultHtml += '</div>';
+
+    batchResult.innerHTML = resultHtml;
+    batchResult.classList.remove('d-none');
+    batchProgress.classList.add('d-none');
 }
 
 // 初始化
