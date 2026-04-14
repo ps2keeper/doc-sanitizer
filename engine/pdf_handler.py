@@ -10,11 +10,12 @@ from engine.audit_engine import AuditEngine, AuditResult
 class PdfHandler:
     """Handles .pdf file processing: replace sensitive words in-place preserving original layout.
 
-    Strategy:
-    1. Find text positions using search_for (returns screen coordinates)
-    2. Insert replacement text at the CORRECT position (convert to PDF coords)
-    3. Add redaction annotation to remove the original text
-    4. Apply redactions
+    Uses PyMuPDF's text search to find each occurrence, then:
+    1. Inserts replacement text at the same position (with correct coordinate conversion)
+    2. Adds redaction annotations to remove the original text
+    3. Applies redactions
+
+    The original PDF layout is preserved exactly.
     """
 
     def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
@@ -62,16 +63,15 @@ class PdfHandler:
                 continue
 
             for rect in instances:
-                # Convert screen coords to PDF coords (flip y)
-                pdf_y0 = page_height - rect.y0
-                pdf_y1 = page_height - rect.y1
-                # In PDF coords, y0 > y1 (y0 is top, y1 is bottom from page bottom)
-                pdf_baseline = pdf_y1  # baseline is at the bottom of the text box
+                # search_for returns SCREEN coordinates (top-left origin, y increases downward)
+                # insert_text expects PDF coordinates (bottom-left origin, y increases upward)
+                # Convert: pdf_y = page_height - screen_y
+                pdf_baseline = page_height - rect.y1
 
                 # Calculate font size from the rect height
                 font_size = max(6, int(rect.height * 0.8))
 
-                # Step 1: Insert replacement text at the correct position (PDF coords)
+                # Insert replacement text at the same position
                 page.insert_text(
                     fitz.Point(rect.x0, pdf_baseline + font_size * 0.15),
                     replacement,
@@ -80,8 +80,8 @@ class PdfHandler:
                     fontname="china-s",
                 )
 
-                # Step 2: Add redaction annotation to remove original text
+                # Add redaction annotation to remove original text
                 page.add_redact_annot(rect)
 
-        # Step 3: Apply all redactions to remove original text
+        # Apply all redactions to remove original text
         page.apply_redactions()
