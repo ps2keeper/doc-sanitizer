@@ -123,8 +123,11 @@ class DocxHandler:
     def _make_ins_run(self, paragraph, text: str):
         """Create a run marked as a tracked insertion."""
         run = paragraph.add_run(text)
-        run.font.highlight_color = 6  # Yellow highlight
         rPr = run._element.get_or_add_rPr()
+
+        # Add yellow highlight via rPr
+        highlight = rPr.makeelement(qn('w:highlight'), {qn('w:val'): 'yellow'})
+        rPr.append(highlight)
 
         # Add w:ins revision marking in rPr
         ins_el = rPr.makeelement(qn('w:ins'), {
