@@ -151,7 +151,9 @@ def api_process():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import logging
+        logging.exception('Error processing document')
+        return jsonify({'error': 'Internal server error during processing'}), 500
     finally:
         # Clean up uploaded file
         if os.path.exists(upload_path):
@@ -160,7 +162,9 @@ def api_process():
 
 @app.route('/api/download/<filename>')
 def api_download(filename):
-    filepath = os.path.join(PROCESSED_DIR, filename)
+    filepath = os.path.realpath(os.path.join(PROCESSED_DIR, filename))
+    if not filepath.startswith(os.path.realpath(PROCESSED_DIR)):
+        return jsonify({'error': 'Invalid filename'}), 400
     if not os.path.exists(filepath):
         return jsonify({'error': 'File not found'}), 404
     return send_file(filepath, as_attachment=True, download_name=filename)
