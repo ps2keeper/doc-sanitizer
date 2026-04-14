@@ -6,7 +6,7 @@ from flask import Flask, render_template, request, jsonify, send_file
 
 from models import (
     init_db, add_word, list_words, delete_word, update_word,
-    get_word, export_words, import_words
+    get_word, export_words, import_words, clear_all
 )
 
 app = Flask(__name__)
@@ -87,8 +87,14 @@ def api_import_words():
     data = request.get_json()
     if not data or not isinstance(data, dict):
         return jsonify({'error': 'JSON object required'}), 400
-    import_words(data)
-    return jsonify({'status': 'ok', 'imported': len(data)})
+    imported = import_words(data)
+    return jsonify({'status': 'ok', 'imported': imported})
+
+
+@app.route('/api/sensitive-words/clear', methods=['POST'])
+def api_clear_words():
+    count = clear_all()
+    return jsonify({'status': 'ok', 'cleared': count})
 
 
 # Store processed files temporarily

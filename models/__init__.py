@@ -82,9 +82,23 @@ def export_words() -> str:
     return json.dumps({w['word']: w['replacement'] for w in words}, indent=2)
 
 
-def import_words(data: dict):
+def import_words(data: dict) -> int:
+    """Import words from a dict. Returns count of actually imported words."""
+    count = 0
     for word, replacement in data.items():
         try:
             add_word(word, replacement)
+            count += 1
         except ValueError:
             pass  # Skip duplicates
+    return count
+
+
+def clear_all():
+    """Delete all sensitive words. Returns count of deleted rows."""
+    conn = get_db()
+    cursor = conn.execute('DELETE FROM sensitive_words')
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted

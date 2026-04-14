@@ -8,14 +8,39 @@ async function loadWords() {
     const words = await resp.json();
     const tbody = document.getElementById('wordsTable');
     tbody.innerHTML = '';
-    words.forEach(w => {
-        tbody.innerHTML += `
-            <tr>
-                <td><input class="form-control form-control-sm" value="${escapeHtml(w.word)}" onchange="updateWord(${w.id}, this, this.parentElement.previousElementSibling.firstElementChild)"></td>
-                <td><input class="form-control form-control-sm" value="${escapeHtml(w.replacement)}" onchange="updateWord(${w.id}, this.previousElementSibling.firstElementChild, this)"></td>
-                <td><button class="btn btn-sm btn-danger" onclick="deleteWord(${w.id})">&times;</button></td>
-            </tr>`;
-    });
+    if (words.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">No sensitive words configured</td></tr>';
+    } else {
+        words.forEach(w => {
+            const tr = document.createElement('tr');
+            
+            const tdWord = document.createElement('td');
+            const inputWord = document.createElement('input');
+            inputWord.className = 'form-control form-control-sm';
+            inputWord.value = w.word;
+            inputWord.addEventListener('change', () => updateWord(w.id, inputWord, inputReplacement));
+            tdWord.appendChild(inputWord);
+            
+            const tdRepl = document.createElement('td');
+            const inputReplacement = document.createElement('input');
+            inputReplacement.className = 'form-control form-control-sm';
+            inputReplacement.value = w.replacement;
+            inputReplacement.addEventListener('change', () => updateWord(w.id, inputWord, inputReplacement));
+            tdRepl.appendChild(inputReplacement);
+            
+            const tdDel = document.createElement('td');
+            const btnDel = document.createElement('button');
+            btnDel.className = 'btn btn-sm btn-danger';
+            btnDel.textContent = '×';
+            btnDel.addEventListener('click', () => deleteWord(w.id));
+            tdDel.appendChild(btnDel);
+            
+            tr.appendChild(tdWord);
+            tr.appendChild(tdRepl);
+            tr.appendChild(tdDel);
+            tbody.appendChild(tr);
+        });
+    }
     updateProcessButton();
 }
 
@@ -50,6 +75,14 @@ async function updateWord(id, wordInput, replacementInput) {
 
 async function deleteWord(id) {
     await fetch(`${API}/${id}`, {method: 'DELETE'});
+    await loadWords();
+}
+
+async function clearWords() {
+    if (!confirm('Clear all sensitive words?')) return;
+    const resp = await fetch(`${API}/clear`, {method: 'POST'});
+    const data = await resp.json();
+    alert(`Cleared ${data.cleared} word(s)`);
     await loadWords();
 }
 
