@@ -29,12 +29,36 @@ class AuditEngine:
             patterns.append((word, pattern))
         return patterns
 
+    def _build_replacement_spans(self, text: str) -> list[tuple[int, int]]:
+        """Find all spans in text that correspond to replacement values."""
+        spans = []
+        for replacement in self.replacements.values():
+            start = 0
+            while True:
+                idx = text.lower().find(replacement.lower(), start)
+                if idx == -1:
+                    break
+                spans.append((idx, idx + len(replacement)))
+                start = idx + 1
+        return spans
+
+    def _is_within_replacement(self, match_start: int, match_end: int, replacement_spans: list[tuple[int, int]]) -> bool:
+        """Check if a match falls within any replacement span."""
+        for r_start, r_end in replacement_spans:
+            if match_start >= r_start and match_end <= r_end:
+                return True
+        return False
+
     def scan(self, text: str) -> AuditResult:
         """Scan text for remaining sensitive words and return audit result."""
         result = AuditResult()
+        replacement_spans = self._build_replacement_spans(text)
 
         for original_word, pattern in self._patterns:
             for match in pattern.finditer(text):
+                # Skip matches that fall within known replacement values
+                if self._is_within_replacement(match.start(), match.end(), replacement_spans):
+                    continue
                 result.is_clean = False
                 result.total_matches += 1
                 start = max(0, match.start() - self.CONTEXT_CHARS)
