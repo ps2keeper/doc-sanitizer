@@ -10,12 +10,10 @@ from engine.audit_engine import AuditEngine, AuditResult
 class PdfHandler:
     """Handles .pdf file processing: replace sensitive words in-place preserving original layout.
 
-    Uses PyMuPDF's text search to find each occurrence, then:
-    1. Inserts replacement text at the same position (with correct coordinate conversion)
-    2. Adds redaction annotations to remove the original text
-    3. Applies redactions
-
-    The original PDF layout is preserved exactly.
+    Uses PyMuPDF's text search to find each occurrence, then adds a redaction
+    annotation with the replacement text using the built-in Chinese font.
+    When redactions are applied, the original text is removed and the
+    replacement text is inserted at the exact same position.
     """
 
     def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
@@ -53,9 +51,7 @@ class PdfHandler:
         return output, audit_result, replacement_counts
 
     def _replace_on_page(self, page, replacements: dict[str, str]):
-        """Replace sensitive words on a single page."""
-        page_height = page.rect.height
-
+        """Replace sensitive words on a single page using redaction annotations."""
         for word, replacement in replacements.items():
             instances = page.search_for(word)
 
@@ -63,25 +59,21 @@ class PdfHandler:
                 continue
 
             for rect in instances:
-                # search_for returns SCREEN coordinates (top-left origin, y increases downward)
-                # insert_text expects PDF coordinates (bottom-left origin, y increases upward)
-                # Convert: pdf_y = page_height - screen_y
-                pdf_baseline = page_height - rect.y1
-
                 # Calculate font size from the rect height
                 font_size = max(6, int(rect.height * 0.8))
 
-                # Insert replacement text at the same position
-                page.insert_text(
-                    fitz.Point(rect.x0, pdf_baseline + font_size * 0.15),
-                    replacement,
+                # Add redaction annotation with replacement text
+                # The 'text' parameter sets the replacement text
+                # fontname='china-s' provides Chinese Simplified font support
+                page.add_redact_annot(
+                    rect,
+                    text=replacement,
+                    fontname='china-s',
                     fontsize=font_size,
-                    color=(0, 0, 0),
-                    fontname="china-s",
+                    fill=(1, 1, 1),       # White background
+                    text_color=(0, 0, 0), # Black text
+                    cross_out=False,      # No strikethrough
                 )
 
-                # Add redaction annotation to remove original text
-                page.add_redact_annot(rect)
-
-        # Apply all redactions to remove original text
+        # Apply all redactions: removes original text and inserts replacement
         page.apply_redactions()
