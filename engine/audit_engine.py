@@ -20,12 +20,12 @@ class AuditEngine:
         self._patterns = self._build_patterns()
 
     def _build_patterns(self) -> list[tuple[str, re.Pattern]]:
-        """Build regex patterns for each sensitive word with whitespace tolerance."""
+        """Build regex patterns for each sensitive word with word boundaries and whitespace tolerance."""
         patterns = []
         for word in self.replacements:
-            # Insert optional whitespace between each character
+            # Insert optional whitespace between each character, with word boundaries
             spaced = r'\s*'.join(re.escape(c) for c in word)
-            pattern = re.compile(spaced, re.IGNORECASE)
+            pattern = re.compile(r'\b' + spaced + r'\b', re.IGNORECASE)
             patterns.append((word, pattern))
         return patterns
 
@@ -40,11 +40,15 @@ class AuditEngine:
                 start = max(0, match.start() - self.CONTEXT_CHARS)
                 end = min(len(text), match.end() + self.CONTEXT_CHARS)
                 context = text[start:end]
+                # Calculate line number by counting newlines before match
+                line_number = text[:match.start()].count('\n') + 1
                 result.missed_words.append({
                     'word': match.group(),
                     'original': original_word,
                     'context': ('...' if start > 0 else '') + context + ('...' if end < len(text) else ''),
                     'position': match.start(),
+                    'location': f'line {line_number}',
+                    'line_number': line_number,
                 })
 
         return result
