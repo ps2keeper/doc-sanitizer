@@ -14,7 +14,7 @@ def init_db():
     conn.execute('''
         CREATE TABLE IF NOT EXISTS sensitive_words (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT NOT NULL,
+            word TEXT NOT NULL UNIQUE,
             replacement TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -25,14 +25,17 @@ def init_db():
 
 def add_word(word: str, replacement: str) -> int:
     conn = get_db()
-    cursor = conn.execute(
-        'INSERT INTO sensitive_words (word, replacement) VALUES (?, ?)',
-        (word, replacement)
-    )
-    conn.commit()
-    word_id = cursor.lastrowid
-    conn.close()
-    return word_id
+    try:
+        cursor = conn.execute(
+            'INSERT INTO sensitive_words (word, replacement) VALUES (?, ?)',
+            (word, replacement)
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        raise ValueError(f"Word '{word}' already exists")
+    finally:
+        conn.close()
 
 
 def list_words() -> list[dict]:
@@ -42,21 +45,35 @@ def list_words() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def delete_word(word_id: int):
+def delete_word(word_id: int) -> bool:
+    """Delete a word by ID. Returns True if a row was deleted, False if not found."""
     conn = get_db()
-    conn.execute('DELETE FROM sensitive_words WHERE id = ?', (word_id,))
+    cursor = conn.execute('DELETE FROM sensitive_words WHERE id = ?', (word_id,))
     conn.commit()
+    deleted = cursor.rowcount > 0
     conn.close()
+    return deleted
 
 
-def update_word(word_id: int, word: str, replacement: str):
+def update_word(word_id: int, word: str, replacement: str) -> bool:
+    """Update a word. Returns True if updated, False if not found."""
     conn = get_db()
-    conn.execute(
+    cursor = conn.execute(
         'UPDATE sensitive_words SET word = ?, replacement = ? WHERE id = ?',
         (word, replacement, word_id)
     )
     conn.commit()
+    updated = cursor.rowcount > 0
     conn.close()
+    return updated
+
+
+def get_word(word_id: int) -> dict | None:
+    """Get a single word by ID. Returns None if not found."""
+    conn = get_db()
+    row = conn.execute('SELECT * FROM sensitive_words WHERE id = ?', (word_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def export_words() -> str:
@@ -67,4 +84,7 @@ def export_words() -> str:
 
 def import_words(data: dict):
     for word, replacement in data.items():
-        add_word(word, replacement)
+        try:
+            add_word(word, replacement)
+        except ValueError:
+            pass  # Skip duplicates
