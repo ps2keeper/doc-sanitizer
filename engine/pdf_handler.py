@@ -12,7 +12,7 @@ from engine.audit_engine import AuditEngine, AuditResult
 class PdfHandler:
     """Handles .pdf file processing: extract text, replace, rebuild PDF."""
 
-    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult, dict[str, int]]:
+    def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
         """Process a PDF file by extracting text, replacing sensitive words, and rebuilding.
         
         Returns:

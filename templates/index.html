@@ -47,6 +47,12 @@
                             <p class="mb-0 text-muted">拖拽 .docx、.txt 或 .pdf 文件到这里，或</p>
                             <input type="file" id="fileInput" accept=".docx,.txt,.pdf" class="form-control mt-2">
                         </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="trackChangesMode" checked>
+                            <label class="form-check-label" for="trackChangesMode">
+                                Word 文档使用修订模式（取消勾选则直接替换文字）
+                            </label>
+                        </div>
                         <button id="processBtn" class="btn btn-success w-100" onclick="processDocument()" disabled>
                             处理文档
                         </button>

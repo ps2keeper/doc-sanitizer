@@ -8,7 +8,7 @@ from engine.audit_engine import AuditEngine, AuditResult
 class TxtHandler:
     """Handles .txt file processing: read, replace sensitive words, audit."""
 
-    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult, dict[str, int]]:
+    def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
         """Process a text file by replacing sensitive words and auditing the result.
         
         Returns:

@@ -212,6 +212,7 @@ async function processDocument() {
 
     const formData = new FormData();
     formData.append('file', selectedFile);
+    formData.append('track_changes', document.getElementById('trackChangesMode').checked ? 'true' : 'false');
 
     try {
         const resp = await fetch('/api/process', {method: 'POST', body: formData});

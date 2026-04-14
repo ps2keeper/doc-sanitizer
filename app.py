@@ -140,7 +140,9 @@ def api_process():
     try:
         from engine import get_handler
         handler = get_handler(upload_path)
-        result, audit_result, replacement_counts = handler.process(upload_path, replacements)
+        # Determine track_changes mode from request
+        track_changes = request.form.get('track_changes', 'true').lower() == 'true'
+        result, audit_result, replacement_counts = handler.process(upload_path, replacements, track_changes)
 
         # Save processed result
         output_filename = f"processed_{upload_id}.{ext}"

@@ -19,8 +19,18 @@ class DocxHandler:
         self._revision_id += 1
         return str(self._revision_id)
 
-    def process(self, file_path: str, replacements: dict[str, str]) -> tuple[BytesIO, AuditResult, dict[str, int]]:
-        """Process a Word document by replacing sensitive words with tracked deletions/insertions."""
+    def process(self, file_path: str, replacements: dict[str, str], track_changes: bool = True) -> tuple[BytesIO, AuditResult, dict[str, int]]:
+        """Process a Word document by replacing sensitive words.
+
+        Args:
+            file_path: Path to the .docx file
+            replacements: Dict mapping sensitive words to replacements
+            track_changes: If True, use revision mode (del/ins markings).
+                          If False, direct replacement without track changes.
+
+        Returns:
+            (BytesIO output, AuditResult, replacement_counts dict)
+        """
         self._revision_id = 0
         doc = Document(file_path)
 
@@ -38,11 +48,12 @@ class DocxHandler:
             if count > 0:
                 replacement_counts[word] = count
 
-        # Enable track changes
-        self._enable_track_changes(doc)
+        # Enable track changes only if requested
+        if track_changes:
+            self._enable_track_changes(doc)
 
         # Process all paragraphs (including table cells)
-        self._process_document(doc, replacements)
+        self._process_document(doc, replacements, track_changes)
 
         # Save to BytesIO
         output = BytesIO()
@@ -65,18 +76,18 @@ class DocxHandler:
             track_el = new_settings.makeelement(qn('w:trackRevisions'), {})
             settings.append(track_el)
 
-    def _process_document(self, doc, replacements):
+    def _process_document(self, doc, replacements, track_changes: bool = True):
         """Process all paragraphs and tables in the document."""
         for paragraph in doc.paragraphs:
-            self._process_paragraph(paragraph, replacements)
+            self._process_paragraph(paragraph, replacements, track_changes)
 
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
                     for paragraph in cell.paragraphs:
-                        self._process_paragraph(paragraph, replacements)
+                        self._process_paragraph(paragraph, replacements, track_changes)
 
-    def _process_paragraph(self, paragraph, replacements):
+    def _process_paragraph(self, paragraph, replacements, track_changes: bool = True):
         """Process a single paragraph in-place, preserving all paragraph properties and run formatting."""
         full_text = paragraph.text
         if not full_text:
@@ -93,6 +104,19 @@ class DocxHandler:
 
         all_matches.sort(key=lambda x: x[0])
 
+        if track_changes:
+            # Revision mode: process with del/ins markings
+            self._process_paragraph_track(paragraph, all_matches)
+        else:
+            # Direct mode: just replace text in runs
+            self._process_paragraph_direct(paragraph, replacements)
+
+    def _process_paragraph_track(self, paragraph, all_matches):
+        """Process paragraph with track-changes (del/ins markings)."""
+        full_text = paragraph.text
+        if not full_text:
+            return
+
         # Get original runs in order
         runs = []
         for child in list(paragraph._p):
@@ -101,11 +125,9 @@ class DocxHandler:
                 runs.append(child)
 
         # Build position-to-run mapping
-        # We need to know which run contains which text position
-        run_positions = []  # (start_pos, end_pos, run_element)
+        run_positions = []
         pos = 0
         for run_el in runs:
-            # Find all w:t elements in this run
             texts = []
             for child in run_el:
                 ctag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
@@ -115,8 +137,7 @@ class DocxHandler:
             run_positions.append((pos, pos + len(text_content), run_el))
             pos += len(text_content)
 
-        # For each match, find which run(s) it spans and process in-place
-        # Process from RIGHT to LEFT so earlier replacements don't shift later positions
+        # Process from RIGHT to LEFT
         for match_start, match_end, original, replacement in reversed(all_matches):
             # Find the run that contains this match
             target_run = None
@@ -317,6 +338,32 @@ class DocxHandler:
             after_r.append(after_rPr)
             after_r.append(make_t(after))
             ins_r.addnext(after_r)
+
+    def _process_paragraph_direct(self, paragraph, replacements):
+        """Process paragraph with direct text replacement (no track changes)."""
+        for run_el in list(paragraph._p):
+            tag = run_el.tag.split('}')[-1] if '}' in run_el.tag else run_el.tag
+            if tag != 'r':
+                continue
+
+            # Get all w:t elements in this run
+            t_elements = []
+            for child in run_el:
+                ctag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                if ctag == 't' and child.text is not None:
+                    t_elements.append(child)
+
+            if not t_elements:
+                continue
+
+            # Replace text in each t element
+            for t_el in t_elements:
+                text = t_el.text
+                for word, replacement in replacements.items():
+                    pattern = re.compile(re.escape(word), re.IGNORECASE)
+                    if pattern.search(text):
+                        text = pattern.sub(replacement, text)
+                t_el.text = text
 
     def _extract_text(self, doc) -> str:
         """Extract all text from a document, skipping deleted (w:del) text."""
